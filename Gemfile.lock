@@ -1,0 +1,34 @@
+GIT
+  remote: https://github.com/railty/json-odf-report.git
+  revision: 87579b1da26dece15c47e15cdc81101a5a804c02
+  specs:
+    json-odf-report (0.4.4)
+      nokogiri (>= 1.5.0)
+      rubyzip (~> 0.9.4)
+
+GEM
+  remote: https://rubygems.org/
+  specs:
+    columnize (0.3.6)
+    debugger (1.6.5)
+      columnize (>= 0.3.1)
+      debugger-linecache (~> 1.2.0)
+      debugger-ruby_core_source (~> 1.3.1)
+    debugger-linecache (1.2.0)
+    debugger-ruby_core_source (1.3.1)
+    json (1.8.1)
+    mini_portile (0.5.2)
+    nokogiri (1.6.1-x86-mingw32)
+      mini_portile (~> 0.5.0)
+    rubyzip (0.9.9)
+    tiny_tds (0.6.1)
+    tiny_tds (0.6.1-x86-mingw32)
+
+PLATFORMS
+  x86-mingw32
+
+DEPENDENCIES
+  debugger
+  json
+  json-odf-report!
+  tiny_tds
