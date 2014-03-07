@@ -56,7 +56,7 @@ class Hash
 end
 
 def get_conn
-  conn = TinyTds::Client.new(:username => 'sa', :password => 'sa2010', :host => 'localhost', :database => 'hq')
+  conn = TinyTds::Client.new(:username => 'sa', :password => 'sa2010', :host => 'localhost', :database => 'hq', :timeout => 600)
 end
 
 def read_data_sql(store, dt, ws)
@@ -200,15 +200,16 @@ end
 
 def generate_report(store, dt, ws)
   puts "generating reports for #{store} at #{dt} for #{ws}"
-  write_data_file(store, dt, ws)
-  data = read_data_file(store, dt, ws)
-  puts JSON.pretty_generate(data)
+  data = read_data_sql(store, dt, ws)
+  #write_data_file(store, dt, ws)
+  #data = read_data_file(store, dt, ws)
+  #puts JSON.pretty_generate(data)
 
   template = "summary.odt"
   report = JODFReport::Report.new(template, data)
   report_file = report.generate
   
-  ws_report_file = report_file.gsub(/([^\/]*).odt$/, "\\1_#{ws}.odt")
+  ws_report_file = report_file.gsub(/([^\/]*).odt$/, "\\1_#{store}_#{dt.gsub('/', '_')}_#{ws}.odt")
   #puts "#{report_file}-->#{ws_report_file}"
   FileUtils.mv(report_file, ws_report_file)
   
@@ -221,15 +222,19 @@ end
 def generate_reports(store, dt)
   puts "generating reports for #{store} at #{dt}"
   conn = get_conn
-  result = conn.execute("SELECT WS  FROM rpt_2v where Store='#{store}' and dt='#{dt}'")
+  result = conn.execute("EXEC Create_Report2_Data @STORE='#{store}', @Dt='#{dt}'")
   result.each do |row|
     generate_report(store, dt, row['WS'])
   end
 end
 
-if ARGV.length==2 then
-  generate_reports(ARGV[0], ARGV[1])
-else
-  puts "#{$0} STORE DATE"
-end
+#if ARGV.length==2 then
+#  generate_reports(ARGV[0], ARGV[1])
+#else
+#  puts "#{$0} STORE DATE"
+#end
+
+l = File.read('reports_to_be_generated')
+store, dt = l.split(' ')
+generate_reports(store, dt)
 
