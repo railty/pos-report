@@ -55,22 +55,8 @@ class Hash
   end
 end
 
-class TinyTds::Client
-  def remote_execute(store, sql)
-    sql = "#{store}.PRIS.dbo.sp_executesql N'#{sql.gsub("'", "''")}'"
-    #puts sql
-    return self.execute(sql)
-  end
-end
-
 def get_conn
-  return $conn if $conn!=nil
-  puts "create connection..."
-  $conn = TinyTds::Client.new(:username => 'sa', :password => 'sa2010', :host => 'localhost', :database => 'hq', :timeout => 600)
-  #required for distributied query
-  $conn.execute("SET ANSI_NULLS ON")
-  $conn.execute("SET ANSI_WARNINGS ON")
-  return $conn
+  conn = TinyTds::Client.new(:username => 'sa', :password => 'sa2010', :host => 'localhost', :database => 'hq', :timeout => 600)
 end
 
 def read_data_sql(store, dt, ws)
@@ -233,51 +219,13 @@ def generate_report(store, dt, ws)
   `#{cmd}`
 end
 
-def remote_execute(conn, store, sql)
-  #result = conn.execute("Select WorkStationID WS, EmpNum Emp, Method, Sum(PayAmt) PayAmt From [PM].[MBPOSDB].[dbo].InvPay Where PayDate = '#{dt}' Group By WorkStationID, EmpNum, Method")
-  
-  sql = "#{store}.PRIS.dbo.sp_executesql N'#{sql.gsub("'", "''")}'"
-  puts sql
-  result = conn.execute(sql)
-  
-  return result
-end
-
-def collect_data(store, dt)
-  data = {'Store' => store, 'Date' => dt, 'Print_At' => Time.now.strftime("%Y/%m/%d at %H:%M:%S"), 'WSs' => {}}
-  
-  result = get_conn.remote_execute(store, "Select WorkStationID WS, EmpNum Emp, Method, Sum(PayAmt) PayAmt From [PM].[MBPOSDB].[dbo].InvPay Where PayDate = '#{dt}' Group By WorkStationID, EmpNum, Method")
-  wss = data['WSs']
-  payment = {'ALL'=>{'Emp'=>'ALL', 'List'=>{}}}
-  result.each do |row|
-    puts row
-    
-    if wss[row['WS']] == nil then
-      wss[row['WS']] = {}
-    end
-    ws = wss[row['WS']]
-    
-    if ws[row['Emp']] == nil then
-      ws[row['Emp']] = {} 
-    end
-    emp = ws[row['Emp']]
-    
-    if emp[row['Method']] == nil then
-      emp[row['Method']] = row['PayAmt']
-    end
-  end
-  
-  puts data
-end
-
 def generate_reports(store, dt)
   puts "generating reports for #{store} at #{dt}"
-  collect_data(store, dt)
-  #conn = get_conn
-  #result = conn.execute("EXEC Create_Report2_Data @STORE='#{store}', @Dt='#{dt}'")
-  #result.each do |row|
-    #generate_report(store, dt, row['WS'])
-  #end
+  conn = get_conn
+  result = conn.execute("EXEC Create_Report2_Data @STORE='#{store}', @Dt='#{dt}'")
+  result.each do |row|
+    generate_report(store, dt, row['WS'])
+  end
 end
 
 #if ARGV.length==2 then
@@ -286,9 +234,7 @@ end
 #  puts "#{$0} STORE DATE"
 #end
 
-#l = File.read('reports_to_be_generated')
-#store, dt = l.split(' ')
-#generate_reports(store, dt)
-
-generate_reports('ALP', '2014/01/04')
+l = File.read('reports_to_be_generated')
+store, dt = l.split(' ')
+generate_reports(store, dt)
 
