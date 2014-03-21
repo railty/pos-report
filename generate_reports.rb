@@ -53,6 +53,18 @@ class Hash
       end
     end
   end
+  
+  def deep_merge!(other_hash)
+    other_hash.each_pair do |k,v|
+      tv = self[k]
+      self[k] = tv.is_a?(Hash) && v.is_a?(Hash) ? tv.deep_merge(v) : v
+    end
+    self
+  end
+  
+  def deep_merge(other_hash)
+    dup.deep_merge!(other_hash)
+  end  
 end
 
 class TinyTds::Client
@@ -201,15 +213,16 @@ def read_data_sql(store, dt, ws)
   return data
 end
 
-def write_data_file(store, dt, ws)
-  data = read_data_sql(store, dt, ws)
-  f = File.open("#{store}_#{dt.gsub('/', '_')}_#{ws}.json", 'w')
+def write_data_file(data)
+  store = data['Store']
+  dt = data['Date']
+  f = File.open("#{store}_#{dt.gsub('/', '_')}.json", 'w')
   f.puts data.to_json
   f.close
 end
 
-def read_data_file(store, dt, ws)
-  return JSON.parse(File.read("#{store}_#{dt.gsub('/', '_')}_#{ws}.json"))
+def read_data_file(store, dt)
+  return JSON.parse(File.read("#{store}_#{dt.gsub('/', '_')}.json"))
 end
 
 def generate_report(store, dt, ws)
@@ -243,36 +256,106 @@ def remote_execute(conn, store, sql)
   return result
 end
 
+
+def hashnize(result, args)
+  fds = result.fields - args
+  h = {}
+  result.each do |r|
+    hs = h
+    args.each do |k|
+      hs[r[k]] = {} if hs[r[k]] == nil  
+      hs = hs[r[k]]
+    end
+    fds.each do |fd|
+      hs[fd] = r[fd]
+    end
+  end  
+  return h
+end
+
 def collect_data(store, dt)
-  data = {'Store' => store, 'Date' => dt, 'Print_At' => Time.now.strftime("%Y/%m/%d at %H:%M:%S"), 'WSs' => {}}
-  
+  data = {'Store' => store, 'Date' => dt, 'Print_At' => Time.now.strftime("%Y/%m/%d at %H:%M:%S")}
+
+  result = get_conn.remote_execute(store, "Select FieldID Name, FieldValue Value From [PM].[MBPOSDB].[dbo].[SystemParm] Where FieldID In ('COMP_HOMEPAGE','COMP_PHONE_AREA','COMP_PHONE_NUM','COMP_STREET','COMP_CITY','COMP_PROV','COMP_POS','GST_NUMBER','COMP_TITLE')")
+  data.deep_merge!(hashnize(result, ['Name']))
+puts data
+
+  wss = data['WSs']  
   result = get_conn.remote_execute(store, "Select WorkStationID WS, EmpNum Emp, Method, Sum(PayAmt) PayAmt From [PM].[MBPOSDB].[dbo].InvPay Where PayDate = '#{dt}' Group By WorkStationID, EmpNum, Method")
-  wss = data['WSs']
+  x = hashnize(result, ['WS', 'Emp', 'Method'])
+  data.deep_merge!(x)
+  puts x
+  
+  data.deep_merge!(hashnize(result, ['Name']))
   payment = {'ALL'=>{'Emp'=>'ALL', 'List'=>{}}}
-  result.each do |row|
-    puts row
-    
-    if wss[row['WS']] == nil then
-      wss[row['WS']] = {}
-    end
-    ws = wss[row['WS']]
-    
-    if ws[row['Emp']] == nil then
-      ws[row['Emp']] = {} 
-    end
-    emp = ws[row['Emp']]
-    
-    if emp[row['Method']] == nil then
-      emp[row['Method']] = row['PayAmt']
-    end
+  result.each do |r|
+    wss[r['WS']] = {} if wss[r['WS']] == nil
+    ws = wss[r['WS']]
+    ws[r['Emp']] = {}  if ws[r['Emp']] == nil
+    emp = ws[r['Emp']]
+    emp[r['Method']] = r['PayAmt'] if emp[r['Method']] == nil
+  end
+
+  result = get_conn.remote_execute(store, "Select WSID WS, Cashier, Sum(PayTotal) PayOut From [PM].[MBPOSDB].[dbo].PayOut Where PayDate = '#{dt}' Group By WSID, Cashier")
+  result.each do |r|
+    wss[r['WS']] = {} if wss[r['WS']] == nil
+    ws = wss[r['WS']]
+    ws[r['Cashier']] = {} if ws[r['Cashier']] == nil
+    ws[r['Cashier']]['Payout'] = r['PayOut']
   end
   
-  puts data
+  result = get_conn.remote_execute(store, "Select WorkStationID WS, Sum(PayAmt) RetailSales, Sum(PaymentDiscount) Five_Cent_Round From [PM].[MBPOSDB].[dbo].InvPay Where PayDate = '#{dt}' Group By WorkStationID")
+  result.each do |r|
+    wss[r['WS']] = {} if wss[r['WS']] == nil
+    ws = wss[r['WS']]
+    ws['RetailSales'] = r['RetailSales']
+    ws['Five_Cent_Round'] = r['Five_Cent_Round']
+  end
+
+  result = get_conn.remote_execute(store, "Select Ship_Dest WS, Count(*) Num_Of_Txn, Convert(Varchar, Min(InvoiceTime), 108) Start_Time, Sum(Tax1) Tax1, Sum(Tax2) Tax2 From [PM].[MBPOSDB].[dbo].Invoice Where Date_Sent = '#{dt}' Group By Ship_Dest")
+  result.each do |r|
+    wss[r['WS']] = {} if wss[r['WS']] == nil
+    ws = wss[r['WS']]
+    ws['Num_Of_Txn'] = r['Num_Of_Txn'].to_s
+    ws['Start_Time'] = r['Start_Time']
+    ws['Tax1'] = r['Tax1']
+    ws['Tax2'] = r['Tax2']
+  end  
+
+  result = get_conn.remote_execute(store, "Select A.Ship_Dest WS, A.Emp_Num First_Emp From [PM].[MBPOSDB].[dbo].Invoice A Join (Select SHIP_DEST, Min(InvoiceTime) Tm from [PM].[MBPOSDB].[dbo].Invoice Where Date_Sent = '#{dt}' Group By SHIP_DEST) B On A.SHIP_DEST = B.SHIP_DEST And A.InvoiceTime = B.Tm")
+  result.each do |r|
+    wss[r['WS']] = {} if wss[r['WS']] == nil
+    ws = wss[r['WS']]
+    ws['First_Emp'] = r['First_Emp']
+  end  
+
+  result = get_conn.remote_execute(store, "Select WS, OperatorID Emp, Action=CASE [Action] WHEN '1' THEN 'Delete' WHEN '2' THEN 'Refund' WHEN '3' THEN 'Void' WHEN '9' THEN 'Discount' END, Count(*) Affected_Items, Sum(Affected_Amt) Affected_Amt From [PM].[MBPOSDB].[dbo].ActionLog Where Act_Date = '#{dt}' Group By WS, OperatorID, Action")
+  wss1 = hashnize(result, ['WS', 'Emp', 'Action'])
+
+wss.deep_merge!(wss1)
+
+  return data
+end
+
+def format_data(data)
+  data.deep_traverse do |k, v|
+    if v.class == Float or v.class == BigDecimal then
+      v = number_to_string(v)
+    end
+    v
+  end
+  return data
 end
 
 def generate_reports(store, dt)
   puts "generating reports for #{store} at #{dt}"
-  collect_data(store, dt)
+  data = collect_data(store, dt)
+  data = format_data(data)
+  write_data_file(data)
+  data = read_data_file(store, dt)
+  puts JSON.pretty_generate(data)
+
+  
   #conn = get_conn
   #result = conn.execute("EXEC Create_Report2_Data @STORE='#{store}', @Dt='#{dt}'")
   #result.each do |row|
@@ -291,4 +374,6 @@ end
 #generate_reports(store, dt)
 
 generate_reports('ALP', '2014/01/04')
+
+
 
