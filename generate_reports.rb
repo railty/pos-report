@@ -53,27 +53,75 @@ class Hash
       end
     end
   end
-  
-  def deep_merge!(other_hash)
-    other_hash.each_pair do |k,v|
-      tv = self[k]
-      self[k] = tv.is_a?(Hash) && v.is_a?(Hash) ? tv.deep_merge(v) : v
+end
+
+module TinyTds
+  class Client
+    def remote_execute(store, sql)
+      sql = "#{store}.PRIS.dbo.sp_executesql N'#{sql.gsub("'", "''")}'"
+      #puts sql
+      return self.execute(sql)
     end
-    self
+    
+    def execute_batch(sqls)
+      sqls.split(';').each do |sql|
+        #puts sql
+        self.execute(sql).do
+      end
+    end
   end
   
-  def deep_merge(other_hash)
-    dup.deep_merge!(other_hash)
+  class Result
+    def to_insert_scripts(tbl_name, clear=true)
+      if clear then
+        sqls = "delete from #{tbl_name};"
+      else
+        sqls=''
+      end
+      
+      self.each do |r|
+        sql = "INSERT Into #{tbl_name} ("
+        r.each do |k, v|
+          sql = sql+"#{k},"
+        end
+        sql = sql.chop + ') values('
+        
+        r.each do |k, v|
+          if v.class == String then
+            sql = sql+"'#{v}',"
+          else
+            sql = sql+"#{v},"
+          end
+        end
+        
+        sql = sql.chop + ');'
+        sqls =sqls + sql
+      end
+      #puts sqls
+      return sqls
+    end
+    
+    def to_s
+      strs=''
+      self.each do |r|
+        str = ""
+        r.each do |k, v|
+          str = str+"#{k}\t"
+        end
+        str = str.chop + "\n"
+        r.each do |k, v|
+          str = str+"#{v}\t"
+        end
+        str = str.chop + "\n"
+        strs =strs + str
+      end
+      #puts strs
+      return strs
+    end
   end  
 end
 
-class TinyTds::Client
-  def remote_execute(store, sql)
-    sql = "#{store}.PRIS.dbo.sp_executesql N'#{sql.gsub("'", "''")}'"
-    #puts sql
-    return self.execute(sql)
-  end
-end
+
 
 def get_conn
   return $conn if $conn!=nil
@@ -91,7 +139,11 @@ def read_data_sql(store, dt, ws)
 
   result = conn.execute("SELECT Name, Value FROM rpt_2z where Store='#{store}'")
   result.each do |row|
-    data[row['Name']] = row['Value']
+    if row['Name'] == 'STANDARD_TC1' then
+      data['COMP_HOMEPAGE'] = row['Value'] 
+    else
+      data[row['Name']] = row['Value']
+    end
   end
 
   result = conn.execute("SELECT Emp, Method, PayAmt FROM rpt_2a where Store='#{store}' and Dt='#{dt}' and WS='#{ws}'")
@@ -213,167 +265,98 @@ def read_data_sql(store, dt, ws)
   return data
 end
 
-def write_data_file(data)
-  store = data['Store']
-  dt = data['Date']
-  f = File.open("#{store}_#{dt.gsub('/', '_')}.json", 'w')
+def write_data_file(store, dt, ws)
+  data = read_data_sql(store, dt, ws)
+  f = File.open("#{store}_#{dt.gsub('/', '_')}_#{ws}.json", 'w')
   f.puts data.to_json
   f.close
 end
 
-def read_data_file(store, dt)
-  return JSON.parse(File.read("#{store}_#{dt.gsub('/', '_')}.json"))
+def read_data_file(store, dt, ws)
+  return JSON.parse(File.read("#{store}_#{dt.gsub('/', '_')}_#{ws}.json"))
 end
 
-def generate_report(store, dt, ws)
-  puts "generating reports for #{store} at #{dt} for #{ws}"
-  data = read_data_sql(store, dt, ws)
-  #write_data_file(store, dt, ws)
-  #data = read_data_file(store, dt, ws)
-  #puts JSON.pretty_generate(data)
+def download_data(store, dt)
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, FieldID Name, FieldValue Value From [PM].[MBPOSDB].[dbo].[SystemParm] Where FieldID In ('COMP_HOMEPAGE','COMP_PHONE_AREA','COMP_PHONE_NUM','COMP_STREET','COMP_CITY','COMP_PROV','COMP_POS','GST NUMBER','COMP_TITLE','STANDARD_TC1')")
+  get_conn.execute_batch(result.to_insert_scripts("rpt_2z"))
+  
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, WorkStationID WS, EmpNum Emp, Method, Sum(PayAmt) PayAmt From [PM].[MBPOSDB].[dbo].InvPay Where PayDate = '#{dt}' Group By WorkStationID, EmpNum, Method")
+  get_conn.execute_batch(result.to_insert_scripts("rpt_2a"))
 
-  template = "summary.odt"
-  report = JODFReport::Report.new(template, data)
-  report_file = report.generate
-  
-  ws_report_file = report_file.gsub(/([^\/]*).odt$/, "\\1_#{store}_#{dt.gsub('/', '_')}_#{ws}.odt")
-  #puts "#{report_file}-->#{ws_report_file}"
-  FileUtils.mv(report_file, ws_report_file)
-  
-  #cmd = "#{LIBREOFFICE} \"#{report_file}\""
-  #`#{cmd}`
-  cmd = "#{LIBREOFFICE} --convert-to pdf #{ws_report_file} --outdir #{OUTPUT}"
-  `#{cmd}`
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, WSID WS, Cashier, Sum(PayTotal) PayOut From [PM].[MBPOSDB].[dbo].PayOut Where PayDate = '#{dt}' Group By WSID, Cashier")
+  get_conn.execute_batch(result.to_insert_scripts("rpt_2b"))
+
+
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, WorkStationID WS, Sum(PayAmt) RetailSales, Sum(PaymentDiscount) Five_Cent_Round From [PM].[MBPOSDB].[dbo].InvPay Where PayDate = '#{dt}' Group By WorkStationID")
+  get_conn.execute_batch(result.to_insert_scripts("rpt_2c"))
+
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, Ship_Dest WS, Count(*) Num_Of_Txn, Convert(Varchar, Min(InvoiceTime), 108) Start_Time, Sum(Tax1) Tax1, Sum(Tax2) Tax2 From [PM].[MBPOSDB].[dbo].Invoice Where Date_Sent = '#{dt}' Group By Ship_Dest")
+  get_conn.execute_batch(result.to_insert_scripts("rpt_2d"))
+
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, A.Ship_Dest WS, A.Emp_Num First_Emp From [PM].[MBPOSDB].[dbo].Invoice A Join (Select SHIP_DEST, Min(InvoiceTime) Tm from [PM].[MBPOSDB].[dbo].Invoice Where Date_Sent = '#{dt}' Group By SHIP_DEST) B On A.SHIP_DEST = B.SHIP_DEST And A.InvoiceTime = B.Tm")
+  get_conn.execute_batch(result.to_insert_scripts("rpt_2e"))
+
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, WS, OperatorID Emp, Action=CASE [Action] WHEN '1' THEN 'Delete' WHEN '2' THEN 'Refund' WHEN '3' THEN 'Void' WHEN '9' THEN 'Discount' END, Count(*) Affected_Items, Sum(Affected_Amt) Affected_Amt From [PM].[MBPOSDB].[dbo].ActionLog Where Act_Date = '#{dt}' Group By WS, OperatorID, Action")
+  get_conn.execute_batch(result.to_insert_scripts("rpt_2f"))
 end
 
-def remote_execute(conn, store, sql)
-  #result = conn.execute("Select WorkStationID WS, EmpNum Emp, Method, Sum(PayAmt) PayAmt From [PM].[MBPOSDB].[dbo].InvPay Where PayDate = '#{dt}' Group By WorkStationID, EmpNum, Method")
-  
-  sql = "#{store}.PRIS.dbo.sp_executesql N'#{sql.gsub("'", "''")}'"
-  puts sql
-  result = conn.execute(sql)
-  
-  return result
+def log(id, str)
+  get_conn.execute("update report_queue set log = log + CHAR(13) + CHAR(10) + '#{str}' where id = #{id};").do
 end
 
+def generate_report(store, dt, id)
+  puts "update report_queue set status = 'running', run_at = GetDate() where id = #{id};"
+  get_conn.execute("update report_queue set status = 'running', run_at = GetDate() where id = #{id};").do
+  log(id, "start at #{Time.now}")
+  
+  download_data(store, dt)
+  log(id, "download data completed at #{Time.now}")
+  
+  wss = []
+  get_conn.execute("select * from rpt_2v;").each do |r|
+    wss << r['WS']
+  end
+  
+  wss.each do |ws|
+    log(id, "reading start at #{Time.now}")
+    data = read_data_sql(store, dt, ws)
+    #write_data_file(store, dt, ws)
+    #data = read_data_file(store, dt, ws)
+    #puts JSON.pretty_generate(data)
+    
+    log(id, "merge report for #{ws} at #{Time.now}")
+    template = "summary.odt"
+    report = JODFReport::Report.new(template, data)
+    report_file = report.generate
+    
+    ws_report_file = report_file.gsub(/([^\/]*).odt$/, "\\1_#{store}_#{dt.gsub('/', '_')}_#{ws}.odt")
+    #puts "#{report_file}-->#{ws_report_file}"
+    FileUtils.mv(report_file, ws_report_file)
+    
+    log(id, "generate pdf for #{ws} at #{Time.now}")
+    cmd = "#{LIBREOFFICE} --convert-to pdf #{ws_report_file} --outdir #{OUTPUT}"
+    `#{cmd}`
+  end
+  log(id, "finished at #{Time.now}")
+  
+  get_conn.execute("update report_queue set status = 'completed', completed_at = GetDate() where id = #{id};").do
+end
 
-def hashnize(result, args)
-  fds = result.fields - args
-  h = {}
-  result.each do |r|
-    hs = h
-    args.each do |k|
-      hs[r[k]] = {} if hs[r[k]] == nil  
-      hs = hs[r[k]]
+def start_job
+  while (true) do
+    store = nil
+    dt = nil
+    id =  nil
+    result = get_conn.execute("select top 1 * from report_queue where status = 'waiting' order by submitted_at;")
+    
+    result.each do |r|
+      store = r['store']
+      dt = r['dt']
+      id = r['id']
     end
-    fds.each do |fd|
-      hs[fd] = r[fd]
-    end
-  end  
-  return h
+    break if result.affected_rows ==0
+    generate_report(store, dt, id)
+  end
 end
 
-def collect_data(store, dt)
-  data = {'Store' => store, 'Date' => dt, 'Print_At' => Time.now.strftime("%Y/%m/%d at %H:%M:%S")}
-
-  result = get_conn.remote_execute(store, "Select FieldID Name, FieldValue Value From [PM].[MBPOSDB].[dbo].[SystemParm] Where FieldID In ('COMP_HOMEPAGE','COMP_PHONE_AREA','COMP_PHONE_NUM','COMP_STREET','COMP_CITY','COMP_PROV','COMP_POS','GST_NUMBER','COMP_TITLE')")
-  data.deep_merge!(hashnize(result, ['Name']))
-puts data
-
-  wss = data['WSs']  
-  result = get_conn.remote_execute(store, "Select WorkStationID WS, EmpNum Emp, Method, Sum(PayAmt) PayAmt From [PM].[MBPOSDB].[dbo].InvPay Where PayDate = '#{dt}' Group By WorkStationID, EmpNum, Method")
-  x = hashnize(result, ['WS', 'Emp', 'Method'])
-  data.deep_merge!(x)
-  puts x
-  
-  data.deep_merge!(hashnize(result, ['Name']))
-  payment = {'ALL'=>{'Emp'=>'ALL', 'List'=>{}}}
-  result.each do |r|
-    wss[r['WS']] = {} if wss[r['WS']] == nil
-    ws = wss[r['WS']]
-    ws[r['Emp']] = {}  if ws[r['Emp']] == nil
-    emp = ws[r['Emp']]
-    emp[r['Method']] = r['PayAmt'] if emp[r['Method']] == nil
-  end
-
-  result = get_conn.remote_execute(store, "Select WSID WS, Cashier, Sum(PayTotal) PayOut From [PM].[MBPOSDB].[dbo].PayOut Where PayDate = '#{dt}' Group By WSID, Cashier")
-  result.each do |r|
-    wss[r['WS']] = {} if wss[r['WS']] == nil
-    ws = wss[r['WS']]
-    ws[r['Cashier']] = {} if ws[r['Cashier']] == nil
-    ws[r['Cashier']]['Payout'] = r['PayOut']
-  end
-  
-  result = get_conn.remote_execute(store, "Select WorkStationID WS, Sum(PayAmt) RetailSales, Sum(PaymentDiscount) Five_Cent_Round From [PM].[MBPOSDB].[dbo].InvPay Where PayDate = '#{dt}' Group By WorkStationID")
-  result.each do |r|
-    wss[r['WS']] = {} if wss[r['WS']] == nil
-    ws = wss[r['WS']]
-    ws['RetailSales'] = r['RetailSales']
-    ws['Five_Cent_Round'] = r['Five_Cent_Round']
-  end
-
-  result = get_conn.remote_execute(store, "Select Ship_Dest WS, Count(*) Num_Of_Txn, Convert(Varchar, Min(InvoiceTime), 108) Start_Time, Sum(Tax1) Tax1, Sum(Tax2) Tax2 From [PM].[MBPOSDB].[dbo].Invoice Where Date_Sent = '#{dt}' Group By Ship_Dest")
-  result.each do |r|
-    wss[r['WS']] = {} if wss[r['WS']] == nil
-    ws = wss[r['WS']]
-    ws['Num_Of_Txn'] = r['Num_Of_Txn'].to_s
-    ws['Start_Time'] = r['Start_Time']
-    ws['Tax1'] = r['Tax1']
-    ws['Tax2'] = r['Tax2']
-  end  
-
-  result = get_conn.remote_execute(store, "Select A.Ship_Dest WS, A.Emp_Num First_Emp From [PM].[MBPOSDB].[dbo].Invoice A Join (Select SHIP_DEST, Min(InvoiceTime) Tm from [PM].[MBPOSDB].[dbo].Invoice Where Date_Sent = '#{dt}' Group By SHIP_DEST) B On A.SHIP_DEST = B.SHIP_DEST And A.InvoiceTime = B.Tm")
-  result.each do |r|
-    wss[r['WS']] = {} if wss[r['WS']] == nil
-    ws = wss[r['WS']]
-    ws['First_Emp'] = r['First_Emp']
-  end  
-
-  result = get_conn.remote_execute(store, "Select WS, OperatorID Emp, Action=CASE [Action] WHEN '1' THEN 'Delete' WHEN '2' THEN 'Refund' WHEN '3' THEN 'Void' WHEN '9' THEN 'Discount' END, Count(*) Affected_Items, Sum(Affected_Amt) Affected_Amt From [PM].[MBPOSDB].[dbo].ActionLog Where Act_Date = '#{dt}' Group By WS, OperatorID, Action")
-  wss1 = hashnize(result, ['WS', 'Emp', 'Action'])
-
-wss.deep_merge!(wss1)
-
-  return data
-end
-
-def format_data(data)
-  data.deep_traverse do |k, v|
-    if v.class == Float or v.class == BigDecimal then
-      v = number_to_string(v)
-    end
-    v
-  end
-  return data
-end
-
-def generate_reports(store, dt)
-  puts "generating reports for #{store} at #{dt}"
-  data = collect_data(store, dt)
-  data = format_data(data)
-  write_data_file(data)
-  data = read_data_file(store, dt)
-  puts JSON.pretty_generate(data)
-
-  
-  #conn = get_conn
-  #result = conn.execute("EXEC Create_Report2_Data @STORE='#{store}', @Dt='#{dt}'")
-  #result.each do |row|
-    #generate_report(store, dt, row['WS'])
-  #end
-end
-
-#if ARGV.length==2 then
-#  generate_reports(ARGV[0], ARGV[1])
-#else
-#  puts "#{$0} STORE DATE"
-#end
-
-#l = File.read('reports_to_be_generated')
-#store, dt = l.split(' ')
-#generate_reports(store, dt)
-
-generate_reports('ALP', '2014/01/04')
-
-
-
+start_job

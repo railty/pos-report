@@ -53,10 +53,99 @@ class Hash
       end
     end
   end
+  
+  def deep_merge!(other_hash)
+    other_hash.each_pair do |k,v|
+      tv = self[k]
+      self[k] = tv.is_a?(Hash) && v.is_a?(Hash) ? tv.deep_merge(v) : v
+    end
+    self
+  end
+  
+  def deep_merge(other_hash)
+    dup.deep_merge!(other_hash)
+  end  
 end
 
+module TinyTds
+  class Client
+    def remote_execute(store, sql)
+      sql = "#{store}.PRIS.dbo.sp_executesql N'#{sql.gsub("'", "''")}'"
+      #puts sql
+      return self.execute(sql)
+    end
+    
+    def execute_batch(sqls)
+      sqls.split(';').each do |sql|
+        puts sql
+        self.execute(sql).do
+      end
+    end
+  end
+  
+  class Result
+    def to_insert_scripts(tbl_name, clear=true)
+      if clear then
+        sqls = "delete from #{tbl_name};"
+      else
+        sqls=''
+      end
+      
+      self.each do |r|
+        sql = "INSERT Into #{tbl_name} ("
+        r.each do |k, v|
+          sql = sql+"#{k},"
+        end
+        sql = sql.chop + ') values('
+        
+        r.each do |k, v|
+          puts "---------"
+          puts k
+          puts v
+          if v.class == String then
+            sql = sql+"'#{v}',"
+          else
+            sql = sql+"#{v},"
+          end
+        end
+        
+        sql = sql.chop + ');'
+        sqls =sqls + sql
+      end
+      #puts sqls
+      return sqls
+    end
+    
+    def to_s
+      strs=''
+      self.each do |r|
+        str = ""
+        r.each do |k, v|
+          str = str+"#{k}\t"
+        end
+        str = str.chop + "\n"
+        r.each do |k, v|
+          str = str+"#{v}\t"
+        end
+        str = str.chop + "\n"
+        strs =strs + str
+      end
+      #puts strs
+      return strs
+    end
+  end  
+end
+
+
+
 def get_conn
-  conn = TinyTds::Client.new(:username => 'sa', :password => 'sa2010', :host => 'localhost', :database => 'hq', :timeout => 600)
+  return $conn if $conn!=nil
+  puts "create connection..."
+  $conn = TinyTds::Client.new(:username => 'sa', :password => 'sa2010', :host => 'localhost', :database => 'hq', :timeout => 600)
+  #required for distributied query
+  $conn.execute("SET ANSI_NULLS ON")
+  $conn.execute("SET ANSI_WARNINGS ON")
+  return $conn
 end
 
 def read_data_sql(store, dt, ws)
@@ -187,45 +276,153 @@ def read_data_sql(store, dt, ws)
   return data
 end
 
-def write_data_file(store, dt, ws)
-  data = read_data_sql(store, dt, ws)
-  f = File.open("#{store}_#{dt.gsub('/', '_')}_#{ws}.json", 'w')
+def write_data_file(data)
+  store = data['Store']
+  dt = data['Date']
+  f = File.open("#{store}_#{dt.gsub('/', '_')}.json", 'w')
   f.puts data.to_json
   f.close
 end
 
-def read_data_file(store, dt, ws)
-  return JSON.parse(File.read("#{store}_#{dt.gsub('/', '_')}_#{ws}.json"))
+def read_data_file(store, dt)
+  return JSON.parse(File.read("#{store}_#{dt.gsub('/', '_')}.json"))
 end
 
-def generate_report(store, dt, ws)
-  puts "generating reports for #{store} at #{dt} for #{ws}"
-  data = read_data_sql(store, dt, ws)
-  #write_data_file(store, dt, ws)
-  #data = read_data_file(store, dt, ws)
-  #puts JSON.pretty_generate(data)
-
-  template = "summary.odt"
+def generate_report(data, template, merged_file)
   report = JODFReport::Report.new(template, data)
   report_file = report.generate
   
-  ws_report_file = report_file.gsub(/([^\/]*).odt$/, "\\1_#{store}_#{dt.gsub('/', '_')}_#{ws}.odt")
-  #puts "#{report_file}-->#{ws_report_file}"
-  FileUtils.mv(report_file, ws_report_file)
-  
-  #cmd = "#{LIBREOFFICE} \"#{report_file}\""
-  #`#{cmd}`
-  cmd = "#{LIBREOFFICE} --convert-to pdf #{ws_report_file} --outdir #{OUTPUT}"
+  puts "#{report_file}-->#{report}"
+  FileUtils.mv(report_file, merged_file)
+end
+
+def generate_pdf(odf, pdf)
+  pdf_file = odf.gsub(/\.odt$/, '.pdf')
+  cmd = "#{LIBREOFFICE} --convert-to pdf #{odf} --outdir #{OUTPUT}"
   `#{cmd}`
+  FileUtils.mv("#{OUTPUT}/#{pdf_file}", pdf)
+end
+
+
+def remote_execute(conn, store, sql)
+  #result = conn.execute("Select WorkStationID WS, EmpNum Emp, Method, Sum(PayAmt) PayAmt From [PM].[MBPOSDB].[dbo].InvPay Where PayDate = '#{dt}' Group By WorkStationID, EmpNum, Method")
+  
+  sql = "#{store}.PRIS.dbo.sp_executesql N'#{sql.gsub("'", "''")}'"
+  puts sql
+  result = conn.execute(sql)
+  
+  return result
+end
+
+
+def hashnize(result, args)
+  fds = result.fields - args
+  h = {}
+  result.each do |r|
+    hs = h
+    last_hs = nil
+    args.each do |k|
+      hs[r[k]] = {}  if hs[r[k]] == nil
+      last_hs = hs
+      hs = hs[r[k]]      
+    end
+    
+    if fds.length == 0 then
+      last_hs[r[args[-1]]] = r[args[-1]]
+    else
+      fds.each do |fd|
+        hs[fd] = r[fd]
+      end
+    end
+  end  
+  return h
+end
+
+def hashnize2(result, args)
+  fds = result.fields - args
+  h = {}
+  result.each do |r|
+    hs = h
+    last_k = nil
+    last_hs = nil
+    args.each do |k|
+      if hs[r[k]] == nil then
+        if fds.length==0 and args[-1] == k then #if group all fields, then the last hash is changed to string
+          last_hs[r[last_k]] = r[k]
+        else
+          hs[r[k]] = {} 
+          last_k = k
+          last_hs = hs
+          hs = hs[r[k]]      
+        end
+      end
+    end
+    puts last_hs
+    fds.each do |fd|
+      hs[fd] = r[fd]
+    end
+  end  
+  return h
+end
+
+def download_table(sql, tbl)
+  
+end
+
+def download_data(store, dt)
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, FieldID Name, FieldValue Value From [PM].[MBPOSDB].[dbo].[SystemParm] Where FieldID In ('COMP_HOMEPAGE','COMP_PHONE_AREA','COMP_PHONE_NUM','COMP_STREET','COMP_CITY','COMP_PROV','COMP_POS','GST_NUMBER','COMP_TITLE')")
+  get_conn.execute_batch(result.to_insert_scripts("rpt_2z"))
+  
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, WorkStationID WS, EmpNum Emp, Method, Sum(PayAmt) PayAmt From [PM].[MBPOSDB].[dbo].InvPay Where PayDate = '#{dt}' Group By WorkStationID, EmpNum, Method")
+  get_conn.execute_batch(result.to_insert_scripts("rpt_2a"))
+
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, WSID WS, Cashier, Sum(PayTotal) PayOut From [PM].[MBPOSDB].[dbo].PayOut Where PayDate = '#{dt}' Group By WSID, Cashier")
+  get_conn.execute_batch(result.to_insert_scripts("rpt_2b"))
+
+
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, WorkStationID WS, Sum(PayAmt) RetailSales, Sum(PaymentDiscount) Five_Cent_Round From [PM].[MBPOSDB].[dbo].InvPay Where PayDate = '#{dt}' Group By WorkStationID")
+  get_conn.execute_batch(result.to_insert_scripts("rpt_2c"))
+
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, Ship_Dest WS, Count(*) Num_Of_Txn, Convert(Varchar, Min(InvoiceTime), 108) Start_Time, Sum(Tax1) Tax1, Sum(Tax2) Tax2 From [PM].[MBPOSDB].[dbo].Invoice Where Date_Sent = '#{dt}' Group By Ship_Dest")
+  get_conn.execute_batch(result.to_insert_scripts("rpt_2d"))
+
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, A.Ship_Dest WS, A.Emp_Num First_Emp From [PM].[MBPOSDB].[dbo].Invoice A Join (Select SHIP_DEST, Min(InvoiceTime) Tm from [PM].[MBPOSDB].[dbo].Invoice Where Date_Sent = '#{dt}' Group By SHIP_DEST) B On A.SHIP_DEST = B.SHIP_DEST And A.InvoiceTime = B.Tm")
+  get_conn.execute_batch(result.to_insert_scripts("rpt_2e"))
+
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, WS, OperatorID Emp, Action=CASE [Action] WHEN '1' THEN 'Delete' WHEN '2' THEN 'Refund' WHEN '3' THEN 'Void' WHEN '9' THEN 'Discount' END, Count(*) Affected_Items, Sum(Affected_Amt) Affected_Amt From [PM].[MBPOSDB].[dbo].ActionLog Where Act_Date = '#{dt}' Group By WS, OperatorID, Action")
+  get_conn.execute_batch(result.to_insert_scripts("rpt_2f"))
+end
+
+def format_data(data)
+  data.deep_traverse do |k, v|
+    if v.class == Float or v.class == BigDecimal then
+      v = number_to_string(v)
+    end
+    v
+  end
+  return data
+end
+
+def translate_data(data)
+  return data
 end
 
 def generate_reports(store, dt)
   puts "generating reports for #{store} at #{dt}"
-  conn = get_conn
-  result = conn.execute("EXEC Create_Report2_Data @STORE='#{store}', @Dt='#{dt}'")
-  result.each do |row|
-    generate_report(store, dt, row['WS'])
-  end
+  data = collect_data(store, dt)
+  data = format_data(data)
+  data = translate_data(data)
+  write_data_file(data)
+  data = read_data_file(store, dt)
+  puts JSON.pretty_generate(data)
+  
+  generate_report(data, "summary.odt", "#{store}_#{dt.gsub('/', '_')}.odt")
+  
+  #conn = get_conn
+  #result = conn.execute("EXEC Create_Report2_Data @STORE='#{store}', @Dt='#{dt}'")
+  #result.each do |row|
+    
+  #end
 end
 
 #if ARGV.length==2 then
@@ -234,7 +431,11 @@ end
 #  puts "#{$0} STORE DATE"
 #end
 
-l = File.read('reports_to_be_generated')
-store, dt = l.split(' ')
-generate_reports(store, dt)
+#l = File.read('reports_to_be_generated')
+#store, dt = l.split(' ')
+#generate_reports(store, dt)
+
+generate_reports('ALP', '2014/01/04')
+
+
 
