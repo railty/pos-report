@@ -210,13 +210,22 @@ def read_data_sql(store, dt, ws)
   data['Payment'].each do |p|
     p['Emp'] = 'CASHER:      ' + p['Emp']
   end
-  data['Payment'] << all
+  data['Payment'] << all if data['Payment'].length > 1
   
   result = conn.execute("SELECT RetailSales, Five_Cent_Round FROM rpt_2c where Store='#{store}' and Dt='#{dt}' and WS='#{ws}'")
   result.each do |row|
     data['RetailSales'] = row['RetailSales']
     data['Five_Cent_Round'] = row['Five_Cent_Round']
+    data['Five_Cent_Round'] = -data['Five_Cent_Round'] if data['Five_Cent_Round'] != 0
   end
+  
+  result = conn.execute("SELECT Coupon FROM rpt_2g where Store='#{store}' and Dt='#{dt}' and WS='#{ws}'")
+  data['Coupon'] = 0.0
+  result.each do |row|
+    data['Coupon'] = row['Coupon']
+  end
+  
+  data['RetailSales'] = data['RetailSales'] - data['Coupon']
 
   result = conn.execute("SELECT Num_Of_Txn, Convert(Varchar, [Start_Time], 108) Start_Time, Tax1, Tax2 FROM rpt_2d where Store='#{store}' and Dt='#{dt}' and WS='#{ws}'")
   result.each do |row|
@@ -298,6 +307,9 @@ def download_data(store, dt)
 
   result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, WS, OperatorID Emp, Action=CASE [Action] WHEN '1' THEN 'Delete' WHEN '2' THEN 'Refund' WHEN '3' THEN 'Void' WHEN '9' THEN 'Discount' END, Count(*) Affected_Items, Sum(Affected_Amt) Affected_Amt From [PM].[MBPOSDB].[dbo].ActionLog Where Act_Date = '#{dt}' Group By WS, OperatorID, Action")
   get_conn.execute_batch(result.to_insert_scripts("rpt_2f"))
+  
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, WorkStationID WS, Sum(PayAmt) Coupon From [PM].[MBPOSDB].[dbo].InvPay Where Method='Coupon' And PayDate = '#{dt}' Group By WorkStationID")
+  get_conn.execute_batch(result.to_insert_scripts("rpt_2g"))
 end
 
 def log(id, str)
