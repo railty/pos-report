@@ -2,8 +2,25 @@ require 'rubygems'
 require 'bundler/setup'
 Bundler.require
 
-LIBREOFFICE = "C:\\PortableApps\\PortableApps\\LibreOfficePortable\\LibreOfficePortable.exe --headless --invisible"
-OUTPUT = "C:\\Temp\\Report"
+LIBREOFFICE = "\"C:\\Program Files (x86)\\LibreOffice 4\\program\\soffice.exe\" --headless --invisible"
+OUTPUT = "D:\\Pris\\reports"
+db_user = 'sa'
+db_password = 'ofc6302'
+
+#LIBREOFFICE = "C:\\PortableApps\\PortableApps\\LibreOfficePortable\\LibreOfficePortable.exe --headless --invisible"
+#OUTPUT = "C:\\Temp\\Report"
+#db_user = 'sa'
+#db_password = 'sa2010'
+
+def get_conn
+  return $conn if $conn!=nil
+  puts "create connection..."
+  $conn = TinyTds::Client.new(:username => db_user, :password => db_password, :host => 'localhost', :database => 'hq', :timeout => 600)
+  #required for distributied query
+  $conn.execute("SET ANSI_NULLS ON")
+  $conn.execute("SET ANSI_WARNINGS ON")
+  return $conn
+end
 
 def number_to_string(n)
     s = "%.2f" % n
@@ -119,18 +136,6 @@ module TinyTds
       return strs
     end
   end  
-end
-
-
-
-def get_conn
-  return $conn if $conn!=nil
-  puts "create connection..."
-  $conn = TinyTds::Client.new(:username => 'sa', :password => 'sa2010', :host => 'localhost', :database => 'hq', :timeout => 600)
-  #required for distributied query
-  $conn.execute("SET ANSI_NULLS ON")
-  $conn.execute("SET ANSI_WARNINGS ON")
-  return $conn
 end
 
 def read_data_sql(store, dt, ws)
