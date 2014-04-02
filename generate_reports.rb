@@ -4,18 +4,18 @@ Bundler.require
 
 LIBREOFFICE = "\"C:\\Program Files (x86)\\LibreOffice 4\\program\\soffice.exe\" --headless --invisible"
 OUTPUT = "D:\\Pris\\reports"
-db_user = 'sa'
-db_password = 'ofc6302'
+$db_user = 'sa'
+$db_password = 'ofc6302'
 
 #LIBREOFFICE = "C:\\PortableApps\\PortableApps\\LibreOfficePortable\\LibreOfficePortable.exe --headless --invisible"
 #OUTPUT = "C:\\Temp\\Report"
-#db_user = 'sa'
-#db_password = 'sa2010'
+#$db_user = 'sa'
+#$db_password = 'sa2010'
 
 def get_conn
   return $conn if $conn!=nil
   puts "create connection..."
-  $conn = TinyTds::Client.new(:username => db_user, :password => db_password, :host => 'localhost', :database => 'hq', :timeout => 600)
+  $conn = TinyTds::Client.new(:username => $db_user, :password => $db_password, :host => 'localhost', :database => 'hq', :timeout => 600)
   #required for distributied query
   $conn.execute("SET ANSI_NULLS ON")
   $conn.execute("SET ANSI_WARNINGS ON")
