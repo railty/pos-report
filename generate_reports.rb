@@ -297,7 +297,7 @@ def download_data(store, dt)
   result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, WorkStationID WS, EmpNum Emp, Method, Sum(PayAmt) PayAmt From [PM].[MBPOSDB].[dbo].InvPay Where PayDate = '#{dt}' Group By WorkStationID, EmpNum, Method")
   get_conn.execute_batch(result.to_insert_scripts("rpt_2a"))
 
-  result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, WSID WS, Cashier, Sum(PayTotal) PayOut From [PM].[MBPOSDB].[dbo].PayOut Where PayDate = '#{dt}' Group By WSID, Cashier")
+  result = get_conn.remote_execute(store, "Select '#{store}' Store, '#{dt}' Dt, WSID WS, Cashier, Sum(LineAmt) PayOut From [PM].[MBPOSDB].[dbo].PayOut Where PayDate = '#{dt}' Group By WSID, Cashier")
   get_conn.execute_batch(result.to_insert_scripts("rpt_2b"))
 
 
