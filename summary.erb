@@ -1,0 +1,58 @@
+<%=d['COMP_TITLE']%>
+<%=d['COMP_STREET']%>
+<%= d['COMP_CITY']%>, <%= d['COMP_PROV']%>, <%= d['COMP_POS']%>
+(<%= d['COMP_PHONE_AREA']%>)<%= d['COMP_PHONE_NUM']%> HST#<%= d['GST NUMBER']%>
+***********************************
+<%= d['COMP_HOMEPAGE']%>
+***********************************
+WS# <%= d['ws']%>             <%= d['First_Emp']%>
+-----Daily Cash Drawer Summary-----
+--------of Date: <%= d['Date']%>--------
+
+Printed on  <%= d['print_at']%>
+
+========== PAYMENT SUMMARY ========
+
+<%d['Payment'].each do |pmt|%>
+ <%= pmt['Emp']%>
+<%pmt['List'].each do |list|%>
+<%= list['Method']%>	<%= list['PayAmt']%>
+<%end%>
+-----------------------------------
+Total	<%= pmt['Total']%>
+<%end%>
+
+=========== SALES SUMMARY =========
+
+Num of Txn
+
+<%= d['Num_Of_Txn']%>
+Start Time
+
+<%= d['Start_Time']%>
+Pay Out
+
+<%= d['Payout']%>
+Retail Sales
+<%= d['RetailSales']%>
+HST
+<%= d['Tax1']%>
+hst5%
+<%= d['Tax2']%>
+Net Sales
+<%= d['NetSales']%>
+5c Rounding
+
+<%= d['Five_Cent_Round']%>
+Coupon :
+<%= d['Coupon']%>
+
+***************************
+<%d['Actions'].each do |emp|%>
+Operator : <%= emp['Emp']%>
+<%emp['ActionList'].each do |action|%>
+<%= action['Name']%>:<%= action['Value']%>
+<%end%>
+<%end%>
+
+********<%= d['COMP_TITLE']%>********
