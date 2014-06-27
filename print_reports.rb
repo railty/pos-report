@@ -3,15 +3,15 @@ require 'bundler/setup'
 Bundler.require
 require 'erb'
 
-#LIBREOFFICE = "\"C:\\Program Files (x86)\\LibreOffice 4\\program\\soffice.exe\" --headless --invisible"
-#OUTPUT = "D:\\Pris\\reports"
-#$db_user = 'sa'
-#$db_password = 'ofc6302'
-
-LIBREOFFICE = "C:\\PortableApps\\PortableApps\\LibreOfficePortable\\LibreOfficePortable.exe --headless --invisible"
-OUTPUT = "C:\\Temp\\Report"
+LIBREOFFICE = "\"C:\\Program Files (x86)\\LibreOffice 4\\program\\soffice.exe\" --headless --invisible"
+OUTPUT = "D:\\Pris\\reports"
 $db_user = 'sa'
-$db_password = 'sa2010'
+$db_password = 'ofc6302'
+
+#LIBREOFFICE = "C:\\PortableApps\\PortableApps\\LibreOfficePortable\\LibreOfficePortable.exe --headless --invisible"
+#OUTPUT = "C:\\Temp\\Report"
+#$db_user = 'sa'
+#$db_password = 'sa2010'
 
 def get_conn
   return $conn if $conn!=nil
@@ -361,19 +361,18 @@ def start_job
     store = nil
     dt = nil
     id =  nil
+    tp = nil
     result = get_conn.execute("select top 1 * from report_queue where status = 'waiting' order by submitted_at;")
     
     result.each do |r|
       store = r['store']
       dt = r['dt']
+      tp = r['type']
       id = r['id']
     end
     break if result.affected_rows ==0
-    generate_report(store, dt, id)
+    generate_report(store, dt, id, tp)
   end
 end
-
-get_conn.execute("update [report_queue] set status = 'waiting';").do
-get_conn.execute("update [report_queue] set log = '';").do
 
 start_job

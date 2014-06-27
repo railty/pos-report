@@ -1,6 +1,7 @@
 require 'rubygems'
 require 'bundler/setup'
 Bundler.require
+require 'erb'
 
 LIBREOFFICE = "\"C:\\Program Files (x86)\\LibreOffice 4\\program\\soffice.exe\" --headless --invisible"
 OUTPUT = "D:\\Pris\\reports"
@@ -199,7 +200,7 @@ def read_data_sql(store, dt, ws)
     array << {'Method'=>'Sales Cash', 'PayAmt'=>list['Sales Cash']['PayAmt']} if list['Sales Cash'] != nil
     if list['Payout'] != nil then
       array << {'Method'=>'Pay Out', 'PayAmt'=>list['Payout']['PayAmt']}
-      array << {'Method'=>'', 'PayAmt' =>  "--------"}
+      array << {'Method'=>'', 'PayAmt' =>  "--------------"}
     end
     array << {'Method'=>'Net Cash', 'PayAmt'=>list['Net Cash']['PayAmt']} if list['Net Cash'] != nil    
     array << {'Method'=>'Net Debit', 'PayAmt'=>list['Debit']['PayAmt']} if list['Debit'] != nil
@@ -213,7 +214,7 @@ def read_data_sql(store, dt, ws)
   
   data['Payment'] = payment.values
   data['Payment'].each do |p|
-    p['Emp'] = 'CASHER:      ' + p['Emp']
+    p['Emp'] = 'CASHER:   ' + p['Emp']
   end
   data['Payment'] << all if data['Payment'].length > 1
   
@@ -321,7 +322,11 @@ def log(id, str)
   get_conn.execute("update report_queue set log = log + CHAR(13) + CHAR(10) + '#{str}' where id = #{id};").do
 end
 
-def generate_report(store, dt, id)
+def row(left, right, n=50)
+	return "#{left}#{' '*(n - left.length - right.length)}#{right}"
+end
+
+def generate_report(store, dt, tp, id)
   puts "update report_queue set status = 'running', run_at = GetDate() where id = #{id};"
   get_conn.execute("update report_queue set status = 'running', run_at = GetDate() where id = #{id};").do
   log(id, "start at #{Time.now}")
@@ -336,23 +341,34 @@ def generate_report(store, dt, id)
   
   wss.each do |ws|
     log(id, "reading start at #{Time.now}")
-    data = read_data_sql(store, dt, ws)
+    d = read_data_sql(store, dt, ws)
     #write_data_file(store, dt, ws)
     #data = read_data_file(store, dt, ws)
     #puts JSON.pretty_generate(data)
     
-    log(id, "merge report for #{ws} at #{Time.now}")
-    template = "summary.odt"
-    report = JODFReport::Report.new(template, data)
-    report_file = report.generate
+    if tp=='Report' then
+	    log(id, "merge report for #{ws} at #{Time.now}")
+	    template = "summary.odt"
+	    report = JODFReport::Report.new(template, d)
+	    report_file = report.generate
+	    
+	    ws_report_file = report_file.gsub(/([^\/]*).odt$/, "\\1_#{store}_#{dt.gsub('/', '_')}_#{ws}.odt")
+	    #puts "#{report_file}-->#{ws_report_file}"
+	    FileUtils.mv(report_file, ws_report_file)
+	    
+	    log(id, "generate pdf for #{ws} at #{Time.now}")
+	    cmd = "#{LIBREOFFICE} --convert-to pdf #{ws_report_file} --outdir #{OUTPUT}"
+	    `#{cmd}`
+    elsif tp=='Receipt'
+        template = ERB.new File.read('summary.erb')
+	ws_report_file = "#{OUTPUT}\\#{store}_#{dt.gsub('/', '_')}_#{ws}.txt"
+	puts ws_report_file
+	f = File.open(ws_report_file, "w")
+	f.puts template.result(binding)
+	f.close
+	#`PosPrint.exe #{ws_report_file}`
+    end
     
-    ws_report_file = report_file.gsub(/([^\/]*).odt$/, "\\1_#{store}_#{dt.gsub('/', '_')}_#{ws}.odt")
-    #puts "#{report_file}-->#{ws_report_file}"
-    FileUtils.mv(report_file, ws_report_file)
-    
-    log(id, "generate pdf for #{ws} at #{Time.now}")
-    cmd = "#{LIBREOFFICE} --convert-to pdf #{ws_report_file} --outdir #{OUTPUT}"
-    `#{cmd}`
   end
   log(id, "finished at #{Time.now}")
   
@@ -364,15 +380,17 @@ def start_job
     store = nil
     dt = nil
     id =  nil
+    tp = nil
     result = get_conn.execute("select top 1 * from report_queue where status = 'waiting' order by submitted_at;")
     
     result.each do |r|
       store = r['store']
       dt = r['dt']
+      tp = r['type']
       id = r['id']
     end
     break if result.affected_rows ==0
-    generate_report(store, dt, id)
+    generate_report(store, dt, tp, id)
   end
 end
 
