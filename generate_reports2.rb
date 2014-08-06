@@ -3,15 +3,15 @@ require 'bundler/setup'
 Bundler.require
 require 'erb'
 
-LIBREOFFICE = "\"C:\\Program Files (x86)\\LibreOffice 4\\program\\soffice.exe\" --headless --invisible"
-OUTPUT = "D:\\Pris\\reports"
-$db_user = 'sa'
-$db_password = 'ofc6302'
-
-#LIBREOFFICE = "C:\\PortableApps\\PortableApps\\LibreOfficePortable\\LibreOfficePortable.exe --headless --invisible"
-#OUTPUT = "C:\\Temp\\Report"
+#LIBREOFFICE = "\"C:\\Program Files (x86)\\LibreOffice 4\\program\\soffice.exe\" --headless --invisible"
+#OUTPUT = "D:\\Pris\\reports"
 #$db_user = 'sa'
-#$db_password = 'sa2010'
+#$db_password = 'ofc6302'
+
+LIBREOFFICE = "C:\\PortableApps\\PortableApps\\LibreOfficePortable\\LibreOfficePortable.exe --headless --invisible"
+OUTPUT = "C:\\Temp\\Report"
+$db_user = 'sa'
+$db_password = 'sa2010'
 
 def get_conn
   return $conn if $conn!=nil
@@ -141,7 +141,7 @@ end
 
 def read_data_sql(store, dt, ws)
   conn = get_conn
-  data = {'Store' => store, 'Date' => dt, 'ws' => ws, 'print_at' => Time.now.strftime("%Y/%m/%d at %H:%M:%S")}
+  data = {'Store' => store, 'Date' => dt, 'ws' => ws, 'print_at' => Time.now.strftime("%Y/%m/%d %H:%M:%S")}
 
   result = conn.execute("SELECT Name, Value FROM rpt_2z where Store='#{store}'")
   result.each do |row|
@@ -154,6 +154,10 @@ def read_data_sql(store, dt, ws)
 
   result = conn.execute("SELECT Emp, Method, PayAmt FROM rpt_2a where Store='#{store}' and Dt='#{dt}' and WS='#{ws}'")
   payment = {'ALL'=>{'Emp'=>'ALL', 'List'=>{}}}
+  cash_amount = 0
+  debit_amount = 0
+  credit_amount = 0
+  total_payment = 0
   result.each do |row|
     if payment[row['Emp']] == nil then
       payment[row['Emp']] = {} 
@@ -164,7 +168,17 @@ def read_data_sql(store, dt, ws)
     
     payment['ALL']['List'][row['Method']] = {'Method'=>"#{row['Method']}", 'PayAmt'=>0} if payment['ALL']['List'][row['Method']] == nil
     payment['ALL']['List'][row['Method']]['PayAmt'] = payment['ALL']['List'][row['Method']]['PayAmt'] + row['PayAmt']
+    
+    cash_amount = cash_amount + row['PayAmt'] if row['Method']=='Cash'
+    debit_amount = debit_amount + row['PayAmt'] if row['Method']=='Debit'
+    credit_amount = credit_amount + row['PayAmt'] if row['Method']=='Credit'
+    total_payment = total_payment + row['PayAmt']
   end
+  data['total_payment'] = total_payment
+  data['cash_amount'] = cash_amount
+  data['debit_amount'] = debit_amount
+  data['credit_amount'] = credit_amount
+  data['charge_amount'] = 0
   
   result = conn.execute("SELECT Cashier, PayOut FROM rpt_2b where Store='#{store}' and Dt='#{dt}' and WS='#{ws}'")
   result.each do |row|
@@ -240,7 +254,7 @@ puts "SELECT Num_Of_Txn, Convert(Varchar, [Start_Time], 108) Start_Time, Tax1, T
   data['Tax1'] = 0.0
   data['Tax2'] = 0.0
   result.each do |row|
-    data['Num_Of_Txn'] = row['Num_Of_Txn'].to_s
+    data['Num_Of_Txn'] = row['Num_Of_Txn']
     data['Start_Time'] = row['Start_Time']
     data['Tax1'] = row['Tax1'] if row['Tax1']!=nil
     data['Tax2'] = row['Tax2'] if row['Tax2']!=nil
@@ -250,21 +264,45 @@ puts "SELECT Num_Of_Txn, Convert(Varchar, [Start_Time], 108) Start_Time, Tax1, T
 
   result = conn.execute("SELECT First_Emp, print_at, print_by FROM rpt_2e where Store='#{store}' and Dt='#{dt}' and WS='#{ws}'")
   result.each do |row|
-	  puts "1111111111111111111"
-	  puts row
     data['First_Emp'] = row['First_Emp']
     data['print_by'] = row['print_by']
-    data['print_at'] = row['print_at'].strftime("%Y/%m/%d at %H:%M:%S")
+    data['print_at'] = row['print_at'].strftime("%Y/%m/%d %H:%M:%S")
     puts data['print_at']
        puts "[#{data['print_by']}]"
   end
 
   result = conn.execute("SELECT Emp, Action, Affected_Items,Affected_Amt FROM rpt_2f where Store='#{store}' and Dt='#{dt}' and WS='#{ws}'")
   actions = {}
+  deleted_count = 0
+  deleted_amount = 0
+  refund_count = 0
+  refund_amount = 0
+  void_count = 0
+  void_amount = 0
+  discount_count = 0
+  discount_amount = 0
+  
   result.each do |row|
     actions[row['Emp']] = {'Emp'=>row['Emp'], 'ActionList'=>{}} if actions[row['Emp']] == nil
     actions[row['Emp']]['ActionList']["#{row['Action']}_Amt"] = row['Affected_Amt']
     actions[row['Emp']]['ActionList']["#{row['Action']}_Items"] = row['Affected_Items']
+    
+    if row['Action'] == 'Delete' then
+      deleted_count = deleted_count + row['Affected_Items'] 
+      deleted_amount = deleted_amount + row['Affected_Amt'] 
+    end
+    if row['Action'] == 'Refund' then
+      refund_count = refund_count + row['Affected_Items'] 
+      refund_amount = refund_amount + row['Affected_Amt'] 
+    end
+    if row['Action'] == 'Void' then
+      void_count = void_count + row['Affected_Items'] 
+      void_amount = void_amount + row['Affected_Amt'] 
+    end
+    if row['Action'] == 'Discount' then
+      discount_count = discount_count + row['Affected_Items'] 
+      discount_amount = discount_amount + row['Affected_Amt'] 
+    end
   end
   
   actions.each do |k, v|
@@ -280,14 +318,24 @@ puts "SELECT Num_Of_Txn, Convert(Varchar, [Start_Time], 108) Start_Time, Tax1, T
     v['ActionList'] = al
   end
   data['Actions'] = actions.values
+  data['delete_count'] = deleted_count
+  data['delete_amount'] = deleted_amount
+  data['refund_count'] = refund_count
+  data['refund_amount'] = refund_amount
+  data['void_count'] = void_count
+  data['void_amount'] = void_amount
+  data['discount_count'] = discount_count
+  data['discount_amount'] = discount_amount
 
+  data['avg_txn_amt'] = data['RetailSales'] / data['Num_Of_Txn']
   data.deep_traverse do |k, v|
     if v.class == Float or v.class == BigDecimal then
       v = number_to_string(v)
     end
     v
   end
-  
+puts data
+
   return data
 end
 
@@ -338,7 +386,6 @@ def row(left, right, n=50)
 end
 
 def generate_report(store, dt, ws, tp, id)
-  puts "update rpt_2e set status = 'running', run_at = GetDate() where id = #{id};"
   get_conn.execute("update rpt_2e set status = 'running', run_at = GetDate() where id = #{id};").do
   log(id, "start at #{Time.now}")
   
