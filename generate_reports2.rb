@@ -3,15 +3,15 @@ require 'bundler/setup'
 Bundler.require
 require 'erb'
 
-#LIBREOFFICE = "\"C:\\Program Files (x86)\\LibreOffice 4\\program\\soffice.exe\" --headless --invisible"
-#OUTPUT = "D:\\Pris\\reports"
-#$db_user = 'sa'
-#$db_password = 'ofc6302'
-
-LIBREOFFICE = "C:\\PortableApps\\PortableApps\\LibreOfficePortable\\LibreOfficePortable.exe --headless --invisible"
-OUTPUT = "C:\\Temp\\Report"
+LIBREOFFICE = "\"C:\\Program Files (x86)\\LibreOffice 4\\program\\soffice.exe\" --headless --invisible"
+OUTPUT = "D:\\Pris\\reports"
 $db_user = 'sa'
-$db_password = 'sa2010'
+$db_password = 'ofc6302'
+
+#LIBREOFFICE = "C:\\PortableApps\\PortableApps\\LibreOfficePortable\\LibreOfficePortable.exe --headless --invisible"
+#OUTPUT = "C:\\Temp\\Report"
+#$db_user = 'sa'
+#$db_password = 'sa2010'
 
 def get_conn
   return $conn if $conn!=nil
@@ -142,6 +142,7 @@ end
 def read_data_sql(store, dt, ws)
   conn = get_conn
   data = {'Store' => store, 'Date' => dt, 'ws' => ws, 'print_at' => Time.now.strftime("%Y/%m/%d %H:%M:%S")}
+  data['Date'].gsub!('-', '/')
 
   result = conn.execute("SELECT Name, Value FROM rpt_2z where Store='#{store}'")
   result.each do |row|
@@ -174,13 +175,14 @@ def read_data_sql(store, dt, ws)
     credit_amount = credit_amount + row['PayAmt'] if row['Method']=='Credit'
     total_payment = total_payment + row['PayAmt']
   end
-  data['total_payment'] = total_payment
   data['cash_amount'] = cash_amount
   data['debit_amount'] = debit_amount
   data['credit_amount'] = credit_amount
   data['charge_amount'] = 0
+    #SHOULD INCLUDE COUPON, REPLICATE THE ERROR IN POS
+  data['total_payment'] = data['cash_amount'] + data['debit_amount'] + data['credit_amount']
   
-  result = conn.execute("SELECT Cashier, PayOut FROM rpt_2b where Store='#{store}' and Dt='#{dt}' and WS='#{ws}'")
+   result = conn.execute("SELECT Cashier, PayOut FROM rpt_2b where Store='#{store}' and Dt='#{dt}' and WS='#{ws}'")
   result.each do |row|
     payment[row['Cashier']]['List']['Payout'] = {'Method'=>'PayOut', 'PayAmt' => -row['PayOut']}
     
@@ -189,7 +191,11 @@ def read_data_sql(store, dt, ws)
   end
 
   data['Payout'] = payment['ALL']['List']['Payout']==nil ? 0.0 : payment['ALL']['List']['Payout']['PayAmt']
-
+  data['Payout'] = -data['Payout'] if data['Payout'] != 0
+  
+  data['cash_in_drawer'] = data['cash_amount'] - data['Payout']
+  data['total_in_drawer'] = data['cash_in_drawer'] + data['debit_amount'] + data['credit_amount']
+ 
   payment.each do |k, v|
     list = v['List']
     
@@ -267,8 +273,14 @@ puts "SELECT Num_Of_Txn, Convert(Varchar, [Start_Time], 108) Start_Time, Tax1, T
     data['First_Emp'] = row['First_Emp']
     data['print_by'] = row['print_by']
     data['print_at'] = row['print_at'].strftime("%Y/%m/%d %H:%M:%S")
-    puts data['print_at']
-       puts "[#{data['print_by']}]"
+  end
+
+  result = conn.execute("SELECT Net_Sales, Tax_1, Tax_2, Total_Sales FROM rpt_2h where Store='#{store}' and Dt='#{dt}' and WS='#{ws}'")
+  result.each do |row|
+    data['Net_Sales'] = row['Net_Sales']
+    data['Tax_1'] = row['Tax_1']
+    data['Tax_2'] = row['Tax_2']
+    data['Total_Sales'] = row['Total_Sales']
   end
 
   result = conn.execute("SELECT Emp, Action, Affected_Items,Affected_Amt FROM rpt_2f where Store='#{store}' and Dt='#{dt}' and WS='#{ws}'")
@@ -304,7 +316,7 @@ puts "SELECT Num_Of_Txn, Convert(Varchar, [Start_Time], 108) Start_Time, Tax1, T
       discount_amount = discount_amount + row['Affected_Amt'] 
     end
   end
-  
+  refund_amount = -refund_amount if refund_amount != 0
   actions.each do |k, v|
     al = []
     al << {'Name'=>'Delete Items', 'Value'=> v['ActionList']['Delete_Items'] == nil ? 0 : v['ActionList']['Delete_Items']}
@@ -328,13 +340,17 @@ puts "SELECT Num_Of_Txn, Convert(Varchar, [Start_Time], 108) Start_Time, Tax1, T
   data['discount_amount'] = discount_amount
 
   data['avg_txn_amt'] = data['RetailSales'] / data['Num_Of_Txn']
+  data['Num_Of_Txn'] = data['Num_Of_Txn'].to_s
   data.deep_traverse do |k, v|
     if v.class == Float or v.class == BigDecimal then
       v = number_to_string(v)
     end
+    if v.class == Fixnum then
+      v = "%.2f" % v
+    end
     v
   end
-puts data
+#puts data
 
   return data
 end
