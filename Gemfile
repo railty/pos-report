@@ -4,7 +4,7 @@ source "https://rubygems.org"
 # gem "rails"
 gem "tiny_tds"
 gem 'json'
-gem 'debugger'
+#gem 'debugger'
 #gem 'rmagick'
 
 #gem 'json-odf-report', :path =>'../'

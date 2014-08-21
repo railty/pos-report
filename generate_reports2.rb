@@ -4,7 +4,7 @@ Bundler.require
 require 'erb'
 
 LIBREOFFICE = "\"C:\\Program Files (x86)\\LibreOffice 4\\program\\soffice.exe\" --headless --invisible"
-OUTPUT = "D:\\Pris\\reports"
+OUTPUT = "C:\\Pris\\reports"
 $db_user = 'sa'
 $db_password = 'ofc6302'
 
@@ -16,7 +16,7 @@ $db_password = 'ofc6302'
 def get_conn
   return $conn if $conn!=nil
   puts "create connection..."
-  $conn = TinyTds::Client.new(:username => $db_user, :password => $db_password, :host => 'localhost', :database => 'hq', :timeout => 600)
+  $conn = TinyTds::Client.new(:username => $db_user, :password => $db_password, :host => 'hqsvr2', :database => 'hq', :timeout => 600)
   #required for distributied query
   $conn.execute("SET ANSI_NULLS ON")
   $conn.execute("SET ANSI_WARNINGS ON")

@@ -1,10 +1,11 @@
+# encoding: UTF-8
 require 'rubygems'
 require 'bundler/setup'
 Bundler.require
 require 'erb'
 
 LIBREOFFICE = "\"C:\\Program Files (x86)\\LibreOffice 4\\program\\soffice.exe\" --headless --invisible"
-OUTPUT = "D:\\Pris\\reports"
+OUTPUT = "C:\\Pris\\reports"
 $db_user = 'sa'
 $db_password = 'ofc6302'
 
@@ -151,6 +152,11 @@ def read_data_sql(store, dt, ws)
       data[row['Name']] = row['Value']
     end
   end
+
+if store=='OHS' then
+	data['COMP_TITLE1'] = ' ★Oriental Harvest★' 
+	data['COMP_TITLE2'] = '★★(華豐)★★' 
+end
 
   result = conn.execute("SELECT Emp, Method, PayAmt FROM rpt_2a where Store='#{store}' and Dt='#{dt}' and WS='#{ws}'")
   payment = {'ALL'=>{'Emp'=>'ALL', 'List'=>{}}}
@@ -417,7 +423,8 @@ def generate_report(store, dt, ws, tp, id)
         f.puts template.result(binding)
         f.close
 	puts "PosPrintW.exe -printer='EPSON TM-T88V Receipt' -file='#{ws_report_file}' -v2"
-	`PosPrintW.exe -printer="EPSON TM-T88V Receipt" -file="#{ws_report_file}" -v2`
+#	`PosPrintW.exe -printer="EPSON TM-T88V Receipt" -file="#{ws_report_file}" -v2`
+	`PosPrintW.exe -printer="PosPrinter" -file="#{ws_report_file}" -v2`
     end
     
   log(id, "finished at #{Time.now}")
