@@ -3,15 +3,15 @@ require 'bundler/setup'
 Bundler.require
 require 'erb'
 
-#LIBREOFFICE = "\"C:\\Program Files (x86)\\LibreOffice 4\\program\\soffice.exe\" --headless --invisible"
-#OUTPUT = "D:\\Pris\\reports"
-#$db_user = 'sa'
-#$db_password = 'ofc6302'
-
-LIBREOFFICE = "C:\\PortableApps\\PortableApps\\LibreOfficePortable\\LibreOfficePortable.exe --headless --invisible"
-OUTPUT = "C:\\Temp\\Report"
+LIBREOFFICE = "\"C:\\Program Files (x86)\\LibreOffice 4\\program\\soffice.exe\" --headless --invisible"
+OUTPUT = "D:\\Pris\\reports"
 $db_user = 'sa'
-$db_password = 'sa2010'
+$db_password = 'ofc6302'
+
+#LIBREOFFICE = "C:\\PortableApps\\PortableApps\\LibreOfficePortable\\LibreOfficePortable.exe --headless --invisible"
+#OUTPUT = "C:\\Temp\\Report"
+#$db_user = 'sa'
+#$db_password = 'sa2010'
 
 def get_conn
   return $conn if $conn!=nil
@@ -416,7 +416,8 @@ def generate_report(store, dt, ws, tp, id)
         f = File.open(ws_report_file, "w")
         f.puts template.result(binding)
         f.close
-        #`PosPrint.exe PosPrinter #{ws_report_file}`
+	puts "PosPrintW.exe -printer='EPSON TM-T88V Receipt' -file='#{ws_report_file}' -v2"
+	`PosPrintW.exe -printer="EPSON TM-T88V Receipt" -file="#{ws_report_file}" -v2`
     end
     
   log(id, "finished at #{Time.now}")

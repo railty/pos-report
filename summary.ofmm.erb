@@ -1,0 +1,55 @@
+<doc>
+  <default font_family="Courier New"/>
+  <page width="315">
+    <l t="<%=d['COMP_TITLE']%>" font_family="Arial" font_size="12" align="center" />
+    <l t="<%=d['COMP_STREET']%>" align="center"/>
+    <l t="<%= d['COMP_CITY']%>, <%= d['COMP_PROV']%>, <%= d['COMP_POS']%>" align="center"/>
+    <l t="(<%= d['COMP_PHONE_AREA']%>)<%= d['COMP_PHONE_NUM']%> HST#<%= d['GST NUMBER']%>" align="center"/>
+    <l t="**************************************" align="center"/>
+    <l t="<%= d['COMP_HOMEPAGE']%>" />
+    <l t="**************************************" align="center"/>
+    <l t="WS# <%= d['ws']%>                 <%= d['First_Emp']%>" />
+    <l t="-----Daily Cash Drawer Summary-------" />
+    <l t="--------of Date: <%= d['Date']%>--------" />
+
+    <l t="Printed on <%=d['print_at']%>" />
+    <l t="PRINTED BY: <%=d['print_by']%>" />
+    
+    <l t="========== PAYMENT SUMMARY ========" />
+    
+    <%d['Payment'].each do |pmt|%>
+
+      <l t="<%= pmt['Emp']%>" />
+
+      <%pmt['List'].each do |list|%>
+        <l t="<%= row(list['Method'], list['PayAmt'], 30)%>" />
+      <%end%>
+      <l t="-----------------------------------" />
+      <l t="<%= row('Total', pmt['Total'], 30)%>" />
+    <%end%>
+    
+    <l t="=========== SALES SUMMARY =========" />
+    
+    <l t="<%= row(' Num of Txn', d['Num_Of_Txn'], 30)%>" />
+    <l t="<%= row(' Start Time', d['Start_Time'], 30)%>" />
+    <l t="<%= row(' Pay Out', d['Payout'], 30)%>" />
+    <l t="<%= row(' Retail Sales', d['RetailSales'], 30)%>" />
+    <l t="<%= row(' HST', d['Tax1'], 30)%>" />
+    <l t=" " />
+    <l t="<%= row(' hst5%', d['Tax2'], 30)%>" />
+    <l t="<%= row(' Net Sales', d['NetSales'], 30)%>" />
+    <l t="<%= row('5c Rounding', d['Five_Cent_Round'], 30)%>" />
+    <l t="<%= row('Coupon :', d['Coupon'], 30)%>" />
+
+
+    <%d['Actions'].each do |emp|%>
+      <l t="Operator : <%= emp['Emp']%>" />
+      <%emp['ActionList'].each do |action|%>
+        <l t="<%= row(action['Name'], action['Value'].to_s, 30)%>" />
+      <%end%>
+    <%end%>
+
+    <l t="THANK YOU FOR SHOPPING AT"  align="center"/>
+    <l t="******** <%= d['COMP_TITLE']%> ********"  align="center"/>
+  </page>
+</doc>
