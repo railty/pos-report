@@ -17,7 +17,7 @@ $db_password = 'ofc6302'
 def get_conn
   return $conn if $conn!=nil
   puts "create connection..."
-  $conn = TinyTds::Client.new(:username => $db_user, :password => $db_password, :host => 'localhost', :database => 'hq', :timeout => 600)
+  $conn = TinyTds::Client.new(:username => $db_user, :password => $db_password, :host => 'hqsvr2', :database => 'hq', :timeout => 600)
   #required for distributied query
   $conn.execute("SET ANSI_NULLS ON")
   $conn.execute("SET ANSI_WARNINGS ON")
@@ -142,8 +142,8 @@ end
 
 def read_data_sql(store, dt, ws)
   conn = get_conn
-  data = {'Store' => store, 'Date' => dt, 'ws' => ws, 'print_at' => Time.now.strftime("%Y/%m/%d %H:%M:%S")}
-
+  data = {'Store' => store, 'Date' => dt, 'ws' => ws, 'print_at' => Time.now.strftime("%Y/%m/%d   at %H:%M:%S")}
+  data['Date'].gsub!('-', '/')
   result = conn.execute("SELECT Name, Value FROM rpt_2z where Store='#{store}'")
   result.each do |row|
     if row['Name'] == 'STANDARD_TC1' then
@@ -234,7 +234,7 @@ end
   
   data['Payment'] = payment.values
   data['Payment'].each do |p|
-    p['Emp'] = 'CASHER:   ' + p['Emp']
+    p['Emp'] = 'CASHIER:   ' + p['Emp']
   end
   data['Payment'] << all if data['Payment'].length > 1
   
@@ -272,7 +272,7 @@ puts "SELECT Num_Of_Txn, Convert(Varchar, [Start_Time], 108) Start_Time, Tax1, T
   result.each do |row|
     data['First_Emp'] = row['First_Emp']
     data['print_by'] = row['print_by']
-    data['print_at'] = row['print_at'].strftime("%Y/%m/%d %H:%M:%S")
+    data['print_at'] = row['print_at'].strftime("%Y/%m/%d   at %H:%M:%S")
     puts data['print_at']
        puts "[#{data['print_by']}]"
   end
@@ -393,6 +393,7 @@ def row(left, right, n=50)
 end
 
 def generate_report(store, dt, ws, tp, id)
+	puts "update rpt_2e set status = 'running', run_at = GetDate() where id = #{id};"
   get_conn.execute("update rpt_2e set status = 'running', run_at = GetDate() where id = #{id};").do
   log(id, "start at #{Time.now}")
   
