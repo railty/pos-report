@@ -28,6 +28,8 @@
         <l t="<%= row(list['Method'], list['PayAmt'], 34)%>" />
 	<%if list['Method']!='Pay Out' and list['Method']!='Sales Cash' and list['PayAmt'][0]!='-' then%>
 	<l t=" " />
+	<% elsif list['Method']=='Net Cash' and list['PayAmt'][0]=='-' %>
+	<l t=" " />
 	<%end%>
       <%end%>
       

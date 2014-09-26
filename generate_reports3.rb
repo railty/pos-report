@@ -222,7 +222,8 @@ end
       array << {'Method'=>'Pay Out', 'PayAmt'=>list['Payout']['PayAmt']}
       array << {'Method'=>'', 'PayAmt' =>  "--------------"}
     end
-    array << {'Method'=>'Net Cash', 'PayAmt'=>list['Net Cash']['PayAmt']} if list['Net Cash'] != nil    
+    array << {'Method'=>'Net Cash', 'PayAmt'=>list['Net Cash']['PayAmt']} if list['Net Cash'] != nil and list['Net Cash']['PayAmt'] != 0
+
     array << {'Method'=>'Net Debit', 'PayAmt'=>list['Debit']['PayAmt']} if list['Debit'] != nil
     array << {'Method'=>'Net Credit', 'PayAmt'=>list['Credit']['PayAmt']} if list['Credit'] != nil
     
